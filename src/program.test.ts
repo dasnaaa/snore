@@ -1,0 +1,2 @@
+import {describe,expect,it} from 'vitest'; import {sessionFor,totalSeconds,weeks} from './program';
+describe('12-week program',()=>{it('contains 84 complete daily sessions',()=>{expect(weeks).toHaveLength(12);expect(weeks.every(w=>w.days.length===7)).toBe(true)});it('keeps a session close to ten minutes',()=>{const seconds=totalSeconds(sessionFor(1,0));expect(seconds).toBeGreaterThanOrEqual(360);expect(seconds).toBeLessThanOrEqual(720)})});
