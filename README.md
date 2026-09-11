@@ -2,6 +2,17 @@
 
 Mobile-first PWA für ein vorsichtig formuliertes, zwölfwöchiges Training der Mund- und Rachenmuskulatur. Die App speichert Fortschritt und Einstellungen ausschließlich lokal und benötigt kein Konto.
 
+## Funktionsumfang
+
+- **Onboarding** (3 Infoscreens + Erinnerungszeit) beim ersten Start
+- **Heute**: tägliche Session, Streak, Gesamtfortschritt, Reminder-Hinweis
+- **Training**: geführte Session mit Timer, Fortschrittsring, Schritt-für-Schritt-Anleitung, eigenen SVG-Illustrationen (Zungenposition, Bewegungsrichtung, Zielbereich) sowie Ton-/Haptik-Feedback
+- **Übungen**: Katalog aller evidenzbasierten Übungen mit Kurzbeschreibung und Trainingsziel
+- **Verlauf**: Streak, Gesamt-Sessions, Wochenstand sowie optionale subjektive Tagesabfrage (Schnarchintensität 1–5, Rückenlage)
+- **Programm**: 12-Wochen-Plan mit vier Progressionsphasen (Technik → Wiederholungen → Volumen/Haltezeit → volle Routine)
+- **Einstellungen**: Reminder (Uhrzeit/An-Aus), Haptik, Ton, Erscheinungsbild (System/Hell/Dunkel), PWA-Installationshinweis, Fortschritt zurücksetzen, Gesundheitshinweis
+- Vollständig **offlinefähig** (Service Worker), **installierbar** auf Android/Desktop, **Dark Mode**
+
 ## Lokal starten
 
 ```bash
