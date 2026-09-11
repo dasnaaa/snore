@@ -58,7 +58,7 @@ const library: Record<string, ExerciseBase> = {
       'Kurz halten, entspannen, wiederholen.',
     ],
     benefit: 'Verbessert die Kontrolle über den hinteren Zungenbereich am Rachen.',
-    visual: 'tongue-up',
+    visual: 'cheek-press',
   },
   vowels: {
     id: 'vowels',
