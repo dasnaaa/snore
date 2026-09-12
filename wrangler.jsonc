@@ -1,1 +1,8 @@
-{"name":"snore-training","pages_build_output_dir":"./dist","compatibility_date":"2026-08-21","compatibility_flags":["nodejs_compat"]}
+{
+  "name": "snore",
+  "compatibility_date": "2026-09-12",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
