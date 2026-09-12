@@ -28,13 +28,19 @@ npm test
 npm run build
 ```
 
-## Cloudflare Pages
+## Cloudflare Deployment
+
+Das Projekt ist als git-verbundenes **Workers**-Projekt (Workers Builds, mit Static Assets) bei Cloudflare eingerichtet:
 
 - Build command: `npm run build`
-- Build output directory: `dist`
+- Deploy command: `npx wrangler deploy` (Standard, nutzt `wrangler.jsonc`)
 - Node.js: `22`
 
-`wrangler.jsonc`, `_headers` und der SPA-Fallback sind vorbereitet. Nach dem ersten Pages-Deployment kann `snore.wrkt.at` im Pages-Projekt unter **Custom domains** verbunden werden; DNS wird in der zugehörigen Cloudflare-Zone bestätigt.
+`wrangler.jsonc` konfiguriert den statischen Asset-Ordner (`./dist`) inkl. SPA-Fallback (`not_found_handling: single-page-application`). `_headers` liefert zusätzliche Sicherheits-Header und Cache-Regeln für `/assets/*`.
+
+Nach dem ersten erfolgreichen Deploy kann `snore.wrkt.at` unter dem Worker-Projekt als **Custom Domain** hinzugefügt werden (Cloudflare Dashboard → Workers & Pages → snore → Settings → Domains & Routes); DNS wird automatisch in der `wrkt.at`-Zone angelegt.
+
+Wichtig: Das Production-Branch-Mapping im Projekt bestimmt, welcher Git-Branch deployt wird — für Live-Traffic sollte das der `main`-Branch nach Merge des Feature-PRs sein.
 
 ## Android via Capacitor (optional)
 
