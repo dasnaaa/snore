@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Bell,
@@ -22,12 +22,14 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { allExercises, sessionFor, totalSeconds, weeks, type Exercise } from './program';
-import { configureReminder } from './notifications';
+import { allExercises, sessionFor, totalSeconds, weeks } from './program';
+import { advance, tick, type Session } from './session';
+import { configureReminder, nativeReminders } from './notifications';
 import { chime } from './sound';
 import {
   applyTheme,
   dayNumber,
+  dateAt,
   haptic,
   loadState,
   saveState,
@@ -39,7 +41,6 @@ import {
 import { Illustration } from './illustrations';
 
 type Tab = 'home' | 'exercises' | 'progress' | 'plan' | 'settings';
-type Session = { items: Exercise[]; index: number; remaining: number; running: boolean };
 type InstallEvent = Event & { prompt: () => void; userChoice: Promise<{ outcome: string }> };
 
 const fmt = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, '0')}`;
@@ -53,7 +54,7 @@ const ONBOARDING_STEPS = [
   {
     icon: <Flame />,
     title: 'Warum täglich zählt',
-    body: 'Muskeltraining wirkt durch Wiederholung. Zehn Minuten am Tag sind wirkungsvoller als eine lange Einheit pro Woche. Verpasste Tage sind kein Problem – mach einfach weiter.',
+    body: 'Regelmäßiges Üben unterstützt den Aufbau einer Routine. Plane etwa zehn Minuten pro Tag ein. Ein Nutzen gegen Schnarchen ist nicht garantiert. Verpasste Tage sind kein Problem – mach einfach weiter.',
   },
   {
     icon: <CalendarDays />,
@@ -63,8 +64,10 @@ const ONBOARDING_STEPS = [
 ] as const;
 
 function Disclaimer({ onClose }: { onClose: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => { dialog.current?.showModal(); }, []);
   return (
-    <div className="modal-backdrop" onClick={onClose}>
+    <dialog ref={dialog} className="health-dialog" aria-label="Gesundheit und Sicherheit" onCancel={onClose} onClick={onClose}>
       <section className="modal" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose} aria-label="Schließen">
           <X />
@@ -83,18 +86,20 @@ function Disclaimer({ onClose }: { onClose: () => void }) {
           Wende dich damit zeitnah an eine Ärztin oder einen Arzt.
         </p>
         <p>Beende eine Übung sofort bei Schmerzen, Schwindel, Atemnot oder Kieferbeschwerden.</p>
+        <p>Die Studienlage zu myofunktionellem Training ist begrenzt. Dieses konkrete 12-Wochen-Programm wurde nicht klinisch geprüft. Verordnete Behandlungen nicht eigenständig ersetzen.</p>
+        <p><a href="https://www.cochrane.org/evidence/CD013449_myofunctional-therapy-oropharyngeal-mouth-and-throat-exercises-people-obstructive-sleep-apnoea" target="_blank" rel="noreferrer">Evidenz: Cochrane</a> · <a href="https://www.nhlbi.nih.gov/health/sleep-apnea/symptoms" target="_blank" rel="noreferrer">Warnzeichen: NHLBI</a></p>
         <button className="primary" onClick={onClose}>
           Verstanden
         </button>
       </section>
-    </div>
+    </dialog>
   );
 }
 
 function Onboarding({ state, onFinish }: { state: AppState; onFinish: (s: AppState) => void }) {
   const [step, setStep] = useState(0);
   const [time, setTime] = useState(state.reminderTime);
-  const [enableReminder, setEnableReminder] = useState(true);
+  const [enableReminder, setEnableReminder] = useState(nativeReminders);
   const total = ONBOARDING_STEPS.length + 1;
   const isLast = step === total - 1;
 
@@ -134,10 +139,12 @@ function Onboarding({ state, onFinish }: { state: AppState; onFinish: (s: AppSta
             <span>
               <Bell />
               <b>Tägliche Erinnerung aktivieren</b>
+              <small>{nativeReminders ? 'Lokal auf Android' : 'Im Web bitte den Kalender nutzen'}</small>
             </span>
             <input
               type="checkbox"
               checked={enableReminder}
+              disabled={!nativeReminders}
               onChange={(e) => setEnableReminder(e.target.checked)}
             />
           </label>
@@ -172,9 +179,26 @@ export default function App() {
   const [showInfo, setShowInfo] = useState(false);
   const [installEvent, setInstallEvent] = useState<InstallEvent | null>(null);
   const [installed, setInstalled] = useState(false);
+  const [message, setMessage] = useState('');
+  const [reminderBusy, setReminderBusy] = useState(false);
 
-  useEffect(() => saveState(state), [state]);
+  useEffect(() => { if (!saveState(state)) setMessage('Speichern nicht möglich. Dein Browser blockiert den lokalen Speicher oder er ist voll.'); }, [state]);
   useEffect(() => applyTheme(state.theme), [state.theme]);
+  useEffect(() => { window.scrollTo(0, 0); }, [tab, session?.index]);
+  useEffect(() => {
+    if (!nativeReminders) setState(s => ({ ...s, reminderEnabled: false }));
+    const pause = () => { if (document.hidden) setSession(s => s ? { ...s, running: false } : s); };
+    document.addEventListener('visibilitychange', pause);
+    return () => document.removeEventListener('visibilitychange', pause);
+  }, []);
+
+  const updateReminder = async (enabled: boolean, time = state.reminderTime) => {
+    setReminderBusy(true);
+    const ok = await configureReminder(enabled, time);
+    setState(s => ({ ...s, reminderTime: time, reminderEnabled: ok ? enabled : enabled ? false : s.reminderEnabled }));
+    setMessage(ok ? (enabled ? 'Erinnerung ist lokal geplant. Energiespareinstellungen können die Zustellung verzögern.' : 'Erinnerung deaktiviert.') : nativeReminders ? 'Erinnerung konnte nicht geplant werden. Prüfe die Benachrichtigungsberechtigung.' : 'Diese Web-App kann bei geschlossenem Browser keine tägliche Erinnerung planen. Bitte nutze dafür deinen Kalender oder die Android-Version.');
+    setReminderBusy(false);
+  };
 
   useEffect(() => {
     const onPrompt = (e: Event) => {
@@ -193,7 +217,7 @@ export default function App() {
 
   useEffect(() => {
     if (!session?.running) return;
-    const id = setInterval(() => setSession((s) => (s ? { ...s, remaining: Math.max(0, s.remaining - 1) } : s)), 1000);
+    const id = setInterval(() => setSession(tick), 1000);
     return () => clearInterval(id);
   }, [session?.running]);
 
@@ -202,11 +226,11 @@ export default function App() {
     chime(state.sound);
     haptic(state, 'medium');
     if (session.index < session.items.length - 1) {
-      const next = session.index + 1;
-      setSession({ ...session, index: next, remaining: session.items[next].seconds, running: false });
+      setSession(advance(session));
     } else {
       setSession(null);
-      setState((s) => ({ ...s, completed: [...new Set([...s.completed, todayKey()])] }));
+      if (!session.skipped) setState((s) => ({ ...s, completed: [...new Set([...s.completed, todayKey()])].slice(0, 84) }));
+      else setMessage('Session beendet. Mit übersprungenen Übungen zählt sie nicht als vollständig erledigt.');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
@@ -221,7 +245,8 @@ export default function App() {
 
   const start = () => {
     haptic(state);
-    setSession({ items, index: 0, remaining: items[0].seconds, running: true });
+    chime(state.sound);
+    setSession({ items, index: 0, remaining: items[0].seconds, running: false, skipped: false });
   };
 
   const rate = (patch: Partial<{ snore: number | null; backPosition: boolean | null }>) => {
@@ -286,21 +311,20 @@ export default function App() {
           >
             <RotateCcw />
           </button>
-          <button className="play" onClick={() => setSession({ ...session, running: !session.running })}>
+          <button className="play" aria-label={session.running ? 'Timer pausieren' : 'Timer starten'} onClick={() => setSession({ ...session, running: !session.running })}>
             {session.running ? <Pause /> : <Play />}
           </button>
           <button
             className="icon-btn"
             onClick={() => {
-              const next = session.index + 1;
-              if (next >= session.items.length) setSession({ ...session, remaining: 0, running: true });
-              else setSession({ ...session, index: next, remaining: session.items[next].seconds, running: true });
+              setSession(advance(session, true));
             }}
-            aria-label="Weiter"
+            aria-label="Übung überspringen"
           >
             <ChevronRight />
           </button>
         </footer>
+        <p className="privacy">{session.running ? 'Bei App-Wechsel pausiert der Timer automatisch.' : 'Lies die Anleitung und starte den Timer, wenn du bereit bist.'} Übersprungene Übungen zählen nicht als erledigt.</p>
       </main>
     );
   }
@@ -308,6 +332,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <main className="content">
+        {message && <p className="notice" role="status">{message}<button aria-label="Meldung schließen" onClick={() => setMessage('')}>×</button></p>}
         {tab === 'home' && (
           <>
             <header className="top">
@@ -315,7 +340,7 @@ export default function App() {
                 <div className="logo">~</div>
                 <b>Leise</b>
               </div>
-              <button className="avatar" aria-label="Profil">
+              <button className="avatar" aria-label="Wochenplan öffnen" onClick={() => setTab('plan')}>
                 {week}
               </button>
             </header>
@@ -323,7 +348,7 @@ export default function App() {
               <p className="eyebrow">
                 WOCHE {week} · TAG {dayIn + 1}
               </p>
-              <h1>Guten Abend.</h1>
+              <h1>Zeit für dich.</h1>
               <p>Heute stärken wir deine Zunge und trainieren ruhige, kontrollierte Bewegungen.</p>
             </section>
             <section className="today-card">
@@ -372,15 +397,13 @@ export default function App() {
             {!state.reminderEnabled && (
               <button
                 className="notice"
-                onClick={async () => {
-                  const ok = await configureReminder(true, state.reminderTime);
-                  setState((s) => ({ ...s, reminderEnabled: ok }));
-                }}
+                disabled={reminderBusy}
+                onClick={() => updateReminder(true)}
               >
                 <Bell />
                 <span>
-                  <b>Erinnerung aktivieren</b>
-                  <small>Täglich um {state.reminderTime} Uhr erinnert werden</small>
+                  <b>{nativeReminders ? 'Erinnerung aktivieren' : 'Erinnerungen im Web'}</b>
+                  <small>{nativeReminders ? `Täglich um ${state.reminderTime} Uhr` : 'Möglichkeiten und Grenzen ansehen'}</small>
                 </span>
                 <ChevronRight />
               </button>
@@ -490,7 +513,10 @@ export default function App() {
                 </div>
               </div>
             </section>
-            <p className="privacy">Angaben sind freiwillig, rein subjektiv und dienen nur deiner eigenen Übersicht.</p>
+            <p className="privacy">1 = kaum wahrgenommen, 5 = sehr stark. Angaben sind freiwillig, rein subjektiv und keine Messung.</p>
+            <section className="settings-card" aria-label="Letzte Einträge">
+              {Object.entries(state.ratings).sort(([a], [b]) => b.localeCompare(a)).slice(0, 14).map(([date, r]) => <div className="setting-row" key={date}><b>{new Date(date + 'T12:00:00').toLocaleDateString('de-AT')}</b><span>Schnarchen: {r.snore ?? '–'}/5<br />Rückenlage: {r.backPosition === null ? '–' : r.backPosition ? 'Ja' : 'Nein'}</span></div>)}
+            </section>
           </>
         )}
 
@@ -508,14 +534,16 @@ export default function App() {
                 <article className={w.week === week ? 'week active' : w.week < week ? 'week passed' : 'week'} key={w.week}>
                   <div>
                     <span>W{w.week}</span>
-                    {w.week < week && <Check />}
+                    {Array.from({ length: 7 }, (_, i) => dateAt(state.startedAt, (w.week - 1) * 7 + i)).every(d => state.completed.includes(d)) && <Check />}
                   </div>
                   <h3>{w.name}</h3>
                   <p className="week-phase">{w.phase.name}</p>
                   <div className="dots">
                     {Array.from({ length: 7 }, (_, i) => {
                       const n = (w.week - 1) * 7 + i;
-                      return <i key={i} className={n < day - 1 ? 'filled' : n === day - 1 ? 'current' : ''} />;
+                      const date = dateAt(state.startedAt, n);
+                      const complete = state.completed.includes(date);
+                      return <i key={i} title={`${date}: ${complete ? 'erledigt' : 'offen'}`} className={complete ? 'filled' : n === day - 1 ? 'current' : ''} />;
                     })}
                   </div>
                 </article>
@@ -537,15 +565,13 @@ export default function App() {
                 <span>
                   <Bell />
                   <b>Tägliche Erinnerung</b>
-                  <small>Auf Android zuverlässig lokal geplant</small>
+                  <small>{nativeReminders ? 'Lokal auf Android; Systemregeln gelten' : 'Web: keine geplanten Hintergrund-Erinnerungen'}</small>
                 </span>
                 <input
                   type="checkbox"
                   checked={state.reminderEnabled}
-                  onChange={async (e) => {
-                    const ok = await configureReminder(e.target.checked, state.reminderTime);
-                    setState({ ...state, reminderEnabled: ok && e.target.checked });
-                  }}
+                  disabled={reminderBusy}
+                  onChange={(e) => updateReminder(e.target.checked)}
                 />
               </label>
               <label className="setting-row">
@@ -557,10 +583,12 @@ export default function App() {
                 <input
                   type="time"
                   value={state.reminderTime}
-                  onChange={async (e) => {
+                  disabled={reminderBusy}
+                  onChange={(e) => {
                     const time = e.target.value;
-                    setState({ ...state, reminderTime: time });
-                    if (state.reminderEnabled) await configureReminder(true, time);
+                    if (!time) return;
+                    if (state.reminderEnabled) void updateReminder(true, time);
+                    else setState(s => ({ ...s, reminderTime: time }));
                   }}
                 />
               </label>
@@ -615,7 +643,7 @@ export default function App() {
               {!installed && (
                 <button
                   className="text-row"
-                  onClick={installEvent ? promptInstall : () => setShowInfo(false)}
+                  onClick={installEvent ? promptInstall : () => setMessage('iPhone/iPad: In Safari „Teilen“ → „Zum Home-Bildschirm“. Android: Im Browser-Menü „App installieren“ oder „Zum Startbildschirm hinzufügen“.')}
                 >
                   <Smartphone />
                   <span>
